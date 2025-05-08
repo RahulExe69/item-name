@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+import os, json, subprocess, zipfile, sys
+
+# --- CONFIG ---
+REPO_URL = "https://github.com/jinix6/ItemID.git"
+CLONE_DIR = "ItemID"
+JSON_PATHS = [
+    os.path.join(CLONE_DIR, "assets", "ob46_added_itemData.json"),
+    os.path.join(CLONE_DIR, "assets", "ob47_added_itemData.json"),
+]
+OUTPUT_DIR = "item_jsons"
+ZIP_NAME = "items.zip"
+# --------------
+
+def run(cmd):
+    ret = subprocess.run(cmd, capture_output=True, text=True)
+    if ret.returncode != 0:
+        print(f"Error running {cmd!r}:\n{ret.stderr}", file=sys.stderr)
+        sys.exit(1)
+    return ret.stdout
+
+def ensure_repo():
+    if not os.path.isdir(CLONE_DIR):
+        print(f"Cloning {REPO_URL}…")
+        run(["git", "clone", REPO_URL, CLONE_DIR])
+    else:
+        print(f"Updating existing {CLONE_DIR}…")
+        cwd = os.getcwd()
+        os.chdir(CLONE_DIR)
+        run(["git", "pull"])
+        os.chdir(cwd)
+
+def load_items():
+    items = []
+    for path in JSON_PATHS:
+        if not os.path.isfile(path):
+            print(f"Error: expected file not found: {path}", file=sys.stderr)
+            sys.exit(1)
+        print(f"→ loading {path}")
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            print(f"Error: JSON at {path} is not a list", file=sys.stderr)
+            sys.exit(1)
+        items.extend(data)
+    print(f"Loaded {len(items)} total items")
+    return items
+
+def write_individual_files(items):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    count = 0
+    for itm in items:
+        item_id = itm.get("itemID")
+        desc = itm.get("description", "")
+        if not item_id:
+            continue
+        out_path = os.path.join(OUTPUT_DIR, f"{item_id}.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(desc, f, ensure_ascii=False)
+        count += 1
+    print(f"Wrote {count} files to ./{OUTPUT_DIR}/")
+
+def make_zip():
+    with zipfile.ZipFile(ZIP_NAME, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _, files in os.walk(OUTPUT_DIR):
+            for fn in files:
+                full = os.path.join(root, fn)
+                arcname = os.path.relpath(full, OUTPUT_DIR)
+                zf.write(full, arcname)
+    print(f"Packaged all files into ./{ZIP_NAME}")
+
+def main():
+    ensure_repo()
+    items = load_items()
+    write_individual_files(items)
+    make_zip()
+
+if __name__ == "__main__":
+    main()
